@@ -11,7 +11,7 @@ from typing import Any
 
 from .capture import run_hook_stdin
 from .config import codex_home, load_config, write_default_config
-from .db import connection, init_db, recent_records, search_records, stats
+from .db import delete_session, connection, init_db, recent_records, search_records, session_summary, stats
 from .importer import import_codex_home
 from .toon import format_payload
 
@@ -69,6 +69,14 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--before", default=None)
     search.add_argument("--session-id", default=None)
     search.add_argument("--format", choices=["toon", "json"], default="toon")
+
+    session_info = sub.add_parser("session-info", help="Show session storage and token summary")
+    session_info.add_argument("session_id")
+    session_info.add_argument("--format", choices=["toon", "json"], default="json")
+
+    delete = sub.add_parser("delete-session", help="Delete one session and its records")
+    delete.add_argument("session_id")
+    delete.add_argument("--yes", action="store_true", help="Confirm deletion")
 
     sub.add_parser("stats", help="Show aggregate stats")
     sub.add_parser("serve-mcp", help="Run the MCP stdio server")
@@ -136,6 +144,23 @@ def main(argv: list[str] | None = None) -> int:
                 session_id=args.session_id,
             )
         print(format_payload(data, args.format))
+        return 0
+
+    if args.command == "session-info":
+        cfg = load_config()
+        with connection(cfg.db_path) as conn:
+            data = session_summary(conn, session_id=args.session_id)
+        print(format_payload(data, args.format, "session"))
+        return 0
+
+    if args.command == "delete-session":
+        if not args.yes:
+            print("Refusing to delete without --yes", file=sys.stderr)
+            return 2
+        cfg = load_config()
+        with connection(cfg.db_path) as conn:
+            data = delete_session(conn, session_id=args.session_id)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "stats":

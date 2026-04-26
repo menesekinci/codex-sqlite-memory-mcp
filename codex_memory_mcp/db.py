@@ -11,6 +11,7 @@ from typing import Any, Iterable
 
 from .config import load_config
 from .privacy import redact_text
+from .tokens import count_text_tokens
 
 
 RECORD_TYPES = {
@@ -456,6 +457,126 @@ def session_records(
         [*params, max(1, min(int(limit), 1000)), max(0, int(offset))],
     ).fetchall()
     return _rows_to_dicts(rows)
+
+
+def session_summary(conn: sqlite3.Connection, *, session_id: str) -> dict[str, Any]:
+    session = conn.execute(
+        """
+        SELECT id, started_at, updated_at, cwd, model, transcript_path, source
+        FROM sessions
+        WHERE id = ?
+        """,
+        (session_id,),
+    ).fetchone()
+    if session is None:
+        raise ValueError(f"session not found: {session_id}")
+
+    rows = conn.execute(
+        """
+        SELECT id, record_type, role, visible_text, metadata_json, source_path
+        FROM records
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    ).fetchall()
+    by_type_rows = conn.execute(
+        """
+        SELECT record_type, count(*) AS n
+        FROM records
+        WHERE session_id = ?
+        GROUP BY record_type
+        ORDER BY record_type
+        """,
+        (session_id,),
+    ).fetchall()
+    raw_row = conn.execute(
+        """
+        SELECT coalesce(sum(length(cast(raw_payloads.raw_json AS blob))), 0) AS n
+        FROM raw_payloads
+        JOIN records ON records.id = raw_payloads.record_id
+        WHERE records.session_id = ?
+        """,
+        (session_id,),
+    ).fetchone()
+
+    visible_bytes = 0
+    metadata_bytes = 0
+    source_path_bytes = 0
+    visible_tokens = 0
+    token_method = "tiktoken"
+    actual_usage = {
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0,
+        "reasoning_output_tokens": 0,
+        "total_tokens": 0,
+    }
+    actual_usage_events = 0
+
+    for row in rows:
+        visible = row["visible_text"] or ""
+        metadata = row["metadata_json"] or "{}"
+        visible_bytes += len(visible.encode("utf-8"))
+        metadata_bytes += len(metadata.encode("utf-8"))
+        source_path_bytes += len((row["source_path"] or "").encode("utf-8"))
+        tokens, method = count_text_tokens(visible)
+        visible_tokens += tokens
+        if method != "tiktoken":
+            token_method = method
+        usage = _metadata_token_usage(metadata)
+        if usage:
+            actual_usage_events += 1
+            for key in actual_usage:
+                actual_usage[key] += int(usage.get(key) or 0)
+
+    raw_bytes = int(raw_row["n"] or 0)
+    logical_bytes = visible_bytes + metadata_bytes + source_path_bytes + raw_bytes
+    return {
+        "session": dict(session),
+        "records": len(rows),
+        "records_by_type": {row["record_type"]: row["n"] for row in by_type_rows},
+        "storage": {
+            "estimated_logical_bytes": logical_bytes,
+            "estimated_logical_kb": round(logical_bytes / 1024, 2),
+            "visible_text_bytes": visible_bytes,
+            "metadata_bytes": metadata_bytes,
+            "source_path_bytes": source_path_bytes,
+            "raw_payload_bytes": raw_bytes,
+            "note": "Logical per-session estimate; SQLite page/file overhead is shared across the DB.",
+        },
+        "tokens": {
+            "actual_usage": actual_usage,
+            "actual_usage_events": actual_usage_events,
+            "visible_text_tokens": visible_tokens,
+            "visible_text_token_method": token_method,
+            "note": "actual_usage is summed from Codex token_count events when imported; visible_text_tokens counts stored visible text.",
+        },
+    }
+
+
+def delete_session(conn: sqlite3.Connection, *, session_id: str) -> dict[str, Any]:
+    before = session_summary(conn, session_id=session_id)
+    record_count = before["records"]
+    conn.execute("DELETE FROM records WHERE session_id = ?", (session_id,))
+    conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+    return {
+        "deleted_session_id": session_id,
+        "deleted_records": record_count,
+        "freed_estimated_logical_bytes": before["storage"]["estimated_logical_bytes"],
+        "freed_estimated_logical_kb": before["storage"]["estimated_logical_kb"],
+    }
+
+
+def _metadata_token_usage(metadata_json: str) -> dict[str, Any] | None:
+    try:
+        metadata = json.loads(metadata_json)
+    except json.JSONDecodeError:
+        return None
+    for key in ("last_token_usage", "total_token_usage"):
+        value = metadata.get(key)
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def stats(conn: sqlite3.Connection) -> dict[str, Any]:

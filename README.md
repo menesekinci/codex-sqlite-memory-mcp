@@ -35,9 +35,24 @@ per-tool capture. Use `--no-stop` only if your Codex build does not handle
 - `memory_by_date`
 - `memory_sessions`
 - `memory_get_session`
+- `memory_session_info`
+- `memory_delete_session`
 - `memory_stats`
 
 List responses default to `format="toon"` and accept `format="json"`.
+
+`memory_session_info` reports record counts, estimated logical storage size, and
+token usage. Token usage prefers imported Codex `token_count` events when
+available; stored visible text tokens are counted with `tiktoken` when installed
+or a clearly marked character-based estimate otherwise.
+
+`memory_delete_session` requires `confirm=true` and removes the session plus its
+records from SQLite. The equivalent CLI commands are:
+
+```powershell
+codex-memory session-info <session-id>
+codex-memory delete-session <session-id> --yes
+```
 
 ## Storage
 

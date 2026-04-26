@@ -239,6 +239,25 @@ def _records_from_payload(
             }
         ]
 
+    if payload_type == "token_count":
+        info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+        last_usage = info.get("last_token_usage") if isinstance(info, dict) else None
+        total_tokens = last_usage.get("total_tokens") if isinstance(last_usage, dict) else None
+        return [
+            {
+                "turn_id": turn_id,
+                "record_type": "session_event",
+                "visible_text": f"Token usage snapshot: {total_tokens or 'unknown'}",
+                "metadata": {
+                    "payload_type": payload_type,
+                    "total_token_usage": info.get("total_token_usage"),
+                    "last_token_usage": last_usage,
+                    "model_context_window": info.get("model_context_window"),
+                    "rate_limits": payload.get("rate_limits"),
+                },
+            }
+        ]
+
     if payload_type == "exec_command_end":
         command = _command_text(payload.get("command"))
         output = payload.get("aggregated_output") or payload.get("formatted_output") or ""

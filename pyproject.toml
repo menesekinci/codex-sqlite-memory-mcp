@@ -16,6 +16,9 @@ dependencies = [
 dev = [
   "pytest>=8",
 ]
+tokens = [
+  "tiktoken>=0.12,<1",
+]
 
 [project.scripts]
 codex-memory = "codex_memory_mcp.cli:main"

@@ -8,7 +8,15 @@ import sys
 from codex_memory_mcp.capture import handle_hook_event
 from codex_memory_mcp.cli import _read_stdin_utf8, install_hooks, run_setup
 from codex_memory_mcp.config import load_config, write_default_config
-from codex_memory_mcp.db import add_record, connection, recent_records, search_records, stats
+from codex_memory_mcp.db import (
+    add_record,
+    connection,
+    delete_session,
+    recent_records,
+    search_records,
+    session_summary,
+    stats,
+)
 from codex_memory_mcp.importer import import_codex_home
 from codex_memory_mcp.server import create_server
 from codex_memory_mcp.toon import format_payload
@@ -84,6 +92,22 @@ def test_import_idempotency_and_search(monkeypatch, tmp_path):
                 "status": "success",
             },
         },
+        {
+            "timestamp": "2026-04-26T01:03:00Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "last_token_usage": {
+                        "input_tokens": 10,
+                        "cached_input_tokens": 2,
+                        "output_tokens": 3,
+                        "reasoning_output_tokens": 1,
+                        "total_tokens": 13,
+                    }
+                },
+            },
+        },
     ]
     transcript.write_text("\n".join(json.dumps(item) for item in records) + "\n", encoding="utf-8")
     import_codex_home(home)
@@ -91,9 +115,11 @@ def test_import_idempotency_and_search(monkeypatch, tmp_path):
     with connection(db_path) as conn:
         found = search_records(conn, query="alpha", limit=20)
         summary = stats(conn)
+        session = session_summary(conn, session_id="s1")
     assert len(found) >= 2
     assert summary["records_by_type"]["user_prompt"] == 1
     assert summary["records_by_type"]["terminal_output"] == 1
+    assert session["tokens"]["actual_usage"]["total_tokens"] == 13
 
 
 def test_date_range_recent_and_toon(monkeypatch, tmp_path):
@@ -218,3 +244,44 @@ def test_setup_installs_hooks_and_mcp(monkeypatch, tmp_path):
     assert set(hooks["hooks"]) == {"SessionStart", "UserPromptSubmit", "Stop"}
     assert "[mcp_servers.codex-memory]" in config_text
     assert result["restart_required"] is True
+
+
+def test_session_summary_and_delete(monkeypatch, tmp_path):
+    db_path = configure_env(monkeypatch, tmp_path)
+    with connection(db_path) as conn:
+        add_record(
+            conn,
+            session_id="s-delete",
+            turn_id="t1",
+            ts="2026-04-26T10:00:00Z",
+            record_type="user_prompt",
+            visible_text="hello session",
+            role="user",
+        )
+        add_record(
+            conn,
+            session_id="s-delete",
+            turn_id="t1",
+            ts="2026-04-26T10:00:01Z",
+            record_type="session_event",
+            visible_text="Token usage snapshot",
+            metadata={
+                "last_token_usage": {
+                    "input_tokens": 10,
+                    "cached_input_tokens": 2,
+                    "output_tokens": 4,
+                    "reasoning_output_tokens": 1,
+                    "total_tokens": 14,
+                }
+            },
+        )
+        summary = session_summary(conn, session_id="s-delete")
+        deleted = delete_session(conn, session_id="s-delete")
+        remaining = recent_records(conn, session_id="s-delete")
+
+    assert summary["records"] == 2
+    assert summary["storage"]["estimated_logical_bytes"] > 0
+    assert summary["tokens"]["actual_usage"]["total_tokens"] == 14
+    assert summary["tokens"]["visible_text_tokens"] > 0
+    assert deleted["deleted_records"] == 2
+    assert remaining == []

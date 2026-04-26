@@ -5,10 +5,12 @@ from typing import Any
 from .config import load_config
 from .db import (
     connection,
+    delete_session,
     recent_records,
     records_by_range,
     search_records,
     session_records,
+    session_summary,
     sessions,
     stats,
 )
@@ -135,6 +137,31 @@ def create_server():
                 record_types=_record_types(record_types),
             )
         return _format(data, format)
+
+    @mcp.tool()
+    def memory_session_info(session_id: str, format: str = "json") -> str:
+        """Return storage and token summary for one Codex session."""
+        cfg = load_config()
+        with connection(cfg.db_path) as conn:
+            data = session_summary(conn, session_id=session_id)
+        return _format(data, format, "session")
+
+    @mcp.tool()
+    def memory_delete_session(session_id: str, confirm: bool = False) -> str:
+        """Delete one Codex session and its records. Requires confirm=true."""
+        if not confirm:
+            return _format(
+                {
+                    "error": "confirmation_required",
+                    "message": "Call again with confirm=true to delete this session.",
+                    "session_id": session_id,
+                },
+                "json",
+            )
+        cfg = load_config()
+        with connection(cfg.db_path) as conn:
+            data = delete_session(conn, session_id=session_id)
+        return _format(data, "json")
 
     @mcp.tool()
     def memory_stats() -> str:
