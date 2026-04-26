@@ -26,6 +26,13 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("init", help="Create config and SQLite schema")
 
+    setup = sub.add_parser("setup", help="Run the full Codex Memory setup")
+    setup.add_argument("--global", dest="global_scope", action="store_true", help="Use ~/.codex")
+    setup.add_argument("--codex-home", type=Path, default=None, help="Codex home to import from")
+    setup.add_argument("--skip-import", action="store_true", help="Do not import existing Codex history")
+    setup.add_argument("--detailed", action="store_true", help="Also record tool calls and outputs")
+    setup.add_argument("--no-stop", action="store_true", help="Do not install the Stop hook")
+
     hooks = sub.add_parser("install-hooks", help="Install Codex lifecycle hooks")
     hooks.add_argument("--global", dest="global_scope", action="store_true", help="Use ~/.codex")
     hooks.add_argument(
@@ -79,6 +86,17 @@ def main(argv: list[str] | None = None) -> int:
             init_db(conn)
         print(f"config={cfg.config_path}")
         print(f"db={cfg.db_path}")
+        return 0
+
+    if args.command == "setup":
+        result = run_setup(
+            global_scope=args.global_scope,
+            codex_home_arg=args.codex_home,
+            skip_import=args.skip_import,
+            detailed=args.detailed,
+            include_stop=not args.no_stop,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "install-hooks":
@@ -153,6 +171,38 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.error("unknown command")
     return 2
+
+
+def run_setup(
+    *,
+    global_scope: bool,
+    codex_home_arg: Path | None,
+    skip_import: bool,
+    detailed: bool,
+    include_stop: bool,
+) -> dict[str, Any]:
+    cfg_path = write_default_config()
+    cfg = load_config(cfg_path)
+    with connection(cfg.db_path) as conn:
+        init_db(conn)
+
+    home = codex_home() if global_scope else Path.cwd() / ".codex"
+    install_hooks(home, detailed=detailed, include_stop=include_stop)
+    install_mcp(home / "config.toml")
+    ensure_hooks_feature(home / "config.toml")
+
+    import_result: dict[str, Any] | None = None
+    if not skip_import:
+        import_result = import_codex_home(codex_home_arg or home)
+
+    return {
+        "config": str(cfg.config_path),
+        "db": str(cfg.db_path),
+        "hooks": str(home / "hooks.json"),
+        "codex_config": str(home / "config.toml"),
+        "import": import_result,
+        "restart_required": True,
+    }
 
 
 def install_hooks(home: Path, *, detailed: bool = False, include_stop: bool = True) -> None:

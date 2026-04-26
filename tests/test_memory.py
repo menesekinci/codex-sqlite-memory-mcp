@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from codex_memory_mcp.capture import handle_hook_event
-from codex_memory_mcp.cli import _read_stdin_utf8, install_hooks
+from codex_memory_mcp.cli import _read_stdin_utf8, install_hooks, run_setup
 from codex_memory_mcp.config import load_config, write_default_config
 from codex_memory_mcp.db import add_record, connection, recent_records, search_records, stats
 from codex_memory_mcp.importer import import_codex_home
@@ -199,3 +199,22 @@ def test_hook_stdin_is_decoded_as_utf8(monkeypatch):
     monkeypatch.setattr(sys, "stdin", FakeStdin())
 
     assert _read_stdin_utf8() == "Türkçe şğı"
+
+
+def test_setup_installs_hooks_and_mcp(monkeypatch, tmp_path):
+    configure_env(monkeypatch, tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+    result = run_setup(
+        global_scope=False,
+        codex_home_arg=None,
+        skip_import=True,
+        detailed=False,
+        include_stop=True,
+    )
+
+    hooks = json.loads((tmp_path / ".codex" / "hooks.json").read_text(encoding="utf-8"))
+    config_text = (tmp_path / ".codex" / "config.toml").read_text(encoding="utf-8")
+    assert set(hooks["hooks"]) == {"SessionStart", "UserPromptSubmit", "Stop"}
+    assert "[mcp_servers.codex-memory]" in config_text
+    assert result["restart_required"] is True

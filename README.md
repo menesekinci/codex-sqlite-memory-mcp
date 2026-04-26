@@ -8,13 +8,15 @@ exposes history through MCP tools.
 
 ```powershell
 py -m pip install -e .[dev]
-codex-memory init
-codex-memory import
-codex-memory install-hooks --global
-codex-memory install-mcp --global
+codex-memory setup --global
 ```
 
 Restart Codex after installing hooks or MCP config.
+
+`codex-memory setup --global` is the one-command installer after the package is
+available in the Python environment. It creates the SQLite DB/config, imports
+existing Codex history, installs quiet hooks, and registers the MCP server in
+Codex config.
 
 `install-hooks` is quiet by default: it records session starts, user prompts,
 and assistant final messages without a visible hook status message. It
