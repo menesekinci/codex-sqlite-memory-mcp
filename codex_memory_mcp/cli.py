@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "hook":
-        stdin_text = sys.stdin.read()
+        stdin_text = _read_stdin_utf8()
         event_name = _hook_event_name(stdin_text)
         try:
             run_hook_stdin(stdin_text)
@@ -206,6 +206,11 @@ def _hook_event_name(stdin_text: str) -> str | None:
         value = payload.get("hook_event_name")
         return str(value) if value is not None else None
     return None
+
+
+def _read_stdin_utf8() -> str:
+    data = sys.stdin.buffer.read()
+    return data.decode("utf-8", errors="replace")
 
 
 def _log_hook_exception(event_name: str | None) -> None:

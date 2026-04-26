@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
+import sys
 
 from codex_memory_mcp.capture import handle_hook_event
-from codex_memory_mcp.cli import install_hooks
+from codex_memory_mcp.cli import _read_stdin_utf8, install_hooks
 from codex_memory_mcp.config import load_config, write_default_config
 from codex_memory_mcp.db import add_record, connection, recent_records, search_records, stats
 from codex_memory_mcp.importer import import_codex_home
@@ -188,3 +190,12 @@ def test_install_hooks_can_disable_stop(tmp_path):
 
     data = json.loads((home / "hooks.json").read_text(encoding="utf-8"))
     assert set(data["hooks"]) == {"SessionStart", "UserPromptSubmit"}
+
+
+def test_hook_stdin_is_decoded_as_utf8(monkeypatch):
+    class FakeStdin:
+        buffer = io.BytesIO("Türkçe şğı".encode("utf-8"))
+
+    monkeypatch.setattr(sys, "stdin", FakeStdin())
+
+    assert _read_stdin_utf8() == "Türkçe şğı"
