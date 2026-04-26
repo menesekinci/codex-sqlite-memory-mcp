@@ -26,6 +26,11 @@ def main(argv: list[str] | None = None) -> int:
 
     hooks = sub.add_parser("install-hooks", help="Install Codex lifecycle hooks")
     hooks.add_argument("--global", dest="global_scope", action="store_true", help="Use ~/.codex")
+    hooks.add_argument(
+        "--include-stop",
+        action="store_true",
+        help="Also install the experimental Stop hook for assistant final messages",
+    )
 
     mcp = sub.add_parser("install-mcp", help="Install Codex MCP server config")
     mcp.add_argument("--global", dest="global_scope", action="store_true", help="Use ~/.codex")
@@ -66,7 +71,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "install-hooks":
         home = codex_home() if args.global_scope else Path.cwd() / ".codex"
-        install_hooks(home)
+        install_hooks(home, include_stop=args.include_stop)
         ensure_hooks_feature(home / "config.toml")
         print(f"hooks={home / 'hooks.json'}")
         return 0
@@ -135,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def install_hooks(home: Path) -> None:
+def install_hooks(home: Path, *, include_stop: bool = False) -> None:
     home.mkdir(parents=True, exist_ok=True)
     path = home / "hooks.json"
     data: dict[str, Any] = {}
@@ -148,16 +153,20 @@ def install_hooks(home: Path) -> None:
             data = {}
 
     hooks = data.setdefault("hooks", {})
+    if not include_stop:
+        _remove_memory_hook_event(hooks, "Stop")
     for event, matcher in [
         ("SessionStart", "startup|resume|clear"),
         ("UserPromptSubmit", None),
         ("PreToolUse", "*"),
         ("PostToolUse", "*"),
         ("PermissionRequest", "*"),
-        ("Stop", None),
     ]:
         groups = hooks.setdefault(event, [])
         _upsert_hook_group(groups, matcher)
+    if include_stop:
+        groups = hooks.setdefault("Stop", [])
+        _upsert_hook_group(groups, None)
 
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -202,6 +211,36 @@ def _upsert_command_hook(hooks: list[dict[str, Any]]) -> None:
             "statusMessage": "Recording Codex memory",
         }
     )
+
+
+def _remove_memory_hook_event(hooks: dict[str, Any], event: str) -> None:
+    groups = hooks.get(event)
+    if not isinstance(groups, list):
+        return
+    filtered_groups = []
+    for group in groups:
+        if not isinstance(group, dict):
+            filtered_groups.append(group)
+            continue
+        group_hooks = group.get("hooks")
+        if not isinstance(group_hooks, list):
+            filtered_groups.append(group)
+            continue
+        group["hooks"] = [
+            hook
+            for hook in group_hooks
+            if not (
+                isinstance(hook, dict)
+                and hook.get("type") == "command"
+                and "codex_memory_mcp hook" in hook.get("command", "")
+            )
+        ]
+        if group["hooks"]:
+            filtered_groups.append(group)
+    if filtered_groups:
+        hooks[event] = filtered_groups
+    else:
+        hooks.pop(event, None)
 
 
 def ensure_hooks_feature(config_path: Path) -> None:

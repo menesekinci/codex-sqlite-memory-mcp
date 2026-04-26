@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from codex_memory_mcp.capture import handle_hook_event
+from codex_memory_mcp.cli import install_hooks
 from codex_memory_mcp.config import load_config, write_default_config
 from codex_memory_mcp.db import add_record, connection, recent_records, search_records, stats
 from codex_memory_mcp.importer import import_codex_home
@@ -117,3 +118,33 @@ def test_mcp_server_can_be_created(monkeypatch, tmp_path):
     configure_env(monkeypatch, tmp_path)
     server = create_server()
     assert server is not None
+
+
+def test_install_hooks_removes_stop_by_default(tmp_path):
+    home = tmp_path / ".codex"
+    home.mkdir()
+    hooks_path = home / "hooks.json"
+    hooks_path.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "py -m codex_memory_mcp hook",
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    install_hooks(home)
+
+    data = json.loads(hooks_path.read_text(encoding="utf-8"))
+    assert "Stop" not in data["hooks"]
