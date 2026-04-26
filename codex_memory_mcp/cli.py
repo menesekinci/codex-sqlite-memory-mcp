@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
 import sys
+import traceback
 from typing import Any
 
 from .capture import run_hook_stdin
@@ -34,7 +36,12 @@ def main(argv: list[str] | None = None) -> int:
     hooks.add_argument(
         "--include-stop",
         action="store_true",
-        help="Also install the experimental Stop hook for assistant final messages",
+        help="Install the Stop hook for assistant final messages (enabled by default)",
+    )
+    hooks.add_argument(
+        "--no-stop",
+        action="store_true",
+        help="Do not install the Stop hook",
     )
 
     mcp = sub.add_parser("install-mcp", help="Install Codex MCP server config")
@@ -76,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "install-hooks":
         home = codex_home() if args.global_scope else Path.cwd() / ".codex"
-        install_hooks(home, detailed=args.detailed, include_stop=args.include_stop)
+        install_hooks(home, detailed=args.detailed, include_stop=not args.no_stop)
         ensure_hooks_feature(home / "config.toml")
         print(f"hooks={home / 'hooks.json'}")
         return 0
@@ -129,7 +136,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "hook":
         stdin_text = sys.stdin.read()
         event_name = _hook_event_name(stdin_text)
-        run_hook_stdin(stdin_text)
+        try:
+            run_hook_stdin(stdin_text)
+        except Exception:
+            _log_hook_exception(event_name)
         if event_name == "Stop":
             print(json.dumps({"continue": True}, separators=(",", ":")))
         return 0
@@ -145,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
-def install_hooks(home: Path, *, detailed: bool = False, include_stop: bool = False) -> None:
+def install_hooks(home: Path, *, detailed: bool = False, include_stop: bool = True) -> None:
     home.mkdir(parents=True, exist_ok=True)
     path = home / "hooks.json"
     data: dict[str, Any] = {}
@@ -196,6 +206,17 @@ def _hook_event_name(stdin_text: str) -> str | None:
         value = payload.get("hook_event_name")
         return str(value) if value is not None else None
     return None
+
+
+def _log_hook_exception(event_name: str | None) -> None:
+    try:
+        log_path = codex_home() / "memories" / "codex-memory-hook.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).isoformat()
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(f"{stamp} event={event_name or 'unknown'}\n{traceback.format_exc()}\n")
+    except Exception:
+        pass
 
 
 def _upsert_hook_group(groups: list[dict[str, Any]], matcher: str | None) -> None:

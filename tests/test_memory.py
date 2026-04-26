@@ -120,7 +120,7 @@ def test_mcp_server_can_be_created(monkeypatch, tmp_path):
     assert server is not None
 
 
-def test_install_hooks_is_quiet_by_default(tmp_path):
+def test_install_hooks_records_turns_quietly_by_default(tmp_path):
     home = tmp_path / ".codex"
     home.mkdir()
     hooks_path = home / "hooks.json"
@@ -160,10 +160,13 @@ def test_install_hooks_is_quiet_by_default(tmp_path):
     install_hooks(home)
 
     data = json.loads(hooks_path.read_text(encoding="utf-8"))
-    assert set(data["hooks"]) == {"SessionStart", "UserPromptSubmit"}
+    assert set(data["hooks"]) == {"SessionStart", "UserPromptSubmit", "Stop"}
     prompt_hook = data["hooks"]["UserPromptSubmit"][0]["hooks"][0]
     assert prompt_hook["command"] == "py -m codex_memory_mcp hook"
     assert "statusMessage" not in prompt_hook
+    stop_hook = data["hooks"]["Stop"][0]["hooks"][0]
+    assert stop_hook["command"] == "py -m codex_memory_mcp hook"
+    assert "statusMessage" not in stop_hook
 
 
 def test_install_hooks_detailed_mode_keeps_tool_hooks(tmp_path):
@@ -172,7 +175,16 @@ def test_install_hooks_detailed_mode_keeps_tool_hooks(tmp_path):
     install_hooks(home, detailed=True)
 
     data = json.loads((home / "hooks.json").read_text(encoding="utf-8"))
-    assert "Stop" not in data["hooks"]
+    assert "Stop" in data["hooks"]
     assert "PreToolUse" in data["hooks"]
     assert "PostToolUse" in data["hooks"]
     assert "PermissionRequest" in data["hooks"]
+
+
+def test_install_hooks_can_disable_stop(tmp_path):
+    home = tmp_path / ".codex"
+
+    install_hooks(home, include_stop=False)
+
+    data = json.loads((home / "hooks.json").read_text(encoding="utf-8"))
+    assert set(data["hooks"]) == {"SessionStart", "UserPromptSubmit"}
