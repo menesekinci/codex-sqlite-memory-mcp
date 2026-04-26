@@ -16,12 +16,15 @@ codex-memory install-mcp --global
 
 Restart Codex after installing hooks or MCP config.
 
-`install-hooks` records prompts, tool calls, and tool outputs by default. The
-Codex `Stop` hook is intentionally not installed because some Codex Desktop
-builds report it as failed even when the database write succeeds. Assistant
-final messages can still be backfilled from transcripts with
-`codex-memory import`. Use `codex-memory install-hooks --global --include-stop`
-only if your Codex build handles `Stop` hook responses cleanly.
+`install-hooks` is quiet by default: it records session starts and user prompts
+without a visible hook status message. It intentionally skips per-tool hooks so
+Codex Desktop does not show `Recording Codex memory` on every agent step.
+Assistant final messages and detailed tool traces can still be backfilled from
+transcripts with `codex-memory import`.
+
+Use `codex-memory install-hooks --global --detailed` only if you want live
+per-tool capture. Use `--include-stop` only if your Codex build handles `Stop`
+hook responses cleanly.
 
 ## MCP Tools
 
