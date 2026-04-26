@@ -1,3 +1,5 @@
+<img width="1672" height="941" alt="ChatGPT Image 26 Nis 2026 04_48_05" src="https://github.com/user-attachments/assets/c73148df-9b73-4a1f-95a0-493fd87393d3" />
+
 # Codex SQLite Memory MCP
 
 Local-first long-term memory for Codex sessions, backed by SQLite and exposed through MCP.
